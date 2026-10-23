@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: muse-video-pipeline-web
+    runtime: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: APP_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: muse-pipeline-data
+      mountPath: /var/data
+      sizeGB: 1
