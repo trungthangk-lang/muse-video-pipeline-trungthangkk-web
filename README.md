@@ -35,3 +35,7 @@ Node.js 20+, `npm install`, set environment variables, then `npm start`.
 5. Sao lưu dữ liệu: SQLite nằm trong persistent disk `/var/data/pipeline-web.sqlite`.
 
 Gói có `Dockerfile` và `render.yaml` để hỗ trợ deploy, nhưng mình không thể tạo URL công khai thay bạn nếu chưa được kết nối/ủy quyền tài khoản hosting và repository.
+
+
+## Windows Agent (experimental)
+See `windows-agent/README-VI.txt`. Set `AGENT_TOKEN` in Render and in the agent `.env`. The first version opens Muse and attempts to fill a recognizable prompt field but intentionally does not click an unverified Generate button.

@@ -38,6 +38,10 @@ CREATE TABLE IF NOT EXISTS events (
  id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL,
  message TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS agent_jobs (
+ id TEXT PRIMARY KEY, prompt TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued',
+ result TEXT DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
 `);
 app.disable("x-powered-by");
 app.use(helmet({ contentSecurityPolicy: { directives: {
@@ -103,5 +107,38 @@ app.patch("/api/projects/:id",auth,(req,res)=>{
  res.json({ok:true});
 });
 app.delete("/api/projects/:id",auth,(req,res)=>{db.prepare("DELETE FROM events WHERE project_id=?").run(req.params.id);db.prepare("DELETE FROM projects WHERE id=?").run(req.params.id);res.json({ok:true})});
+// Agent bridge: the Windows helper polls Render over outbound HTTPS. Set AGENT_TOKEN on Render and in agent .env.
+const AGENT_TOKEN = process.env.AGENT_TOKEN || "";
+function agentAuth(req,res,next){
+ const supplied=String(req.headers["x-agent-token"]||"");
+ if(!AGENT_TOKEN || !safeEqual(supplied,AGENT_TOKEN)) return res.status(401).json({error:"Agent authentication failed. Configure AGENT_TOKEN."});
+ next();
+}
+app.get("/api/agent/next",agentAuth,(req,res)=>{
+ const job=db.prepare("SELECT * FROM agent_jobs WHERE status='queued' ORDER BY created_at LIMIT 1").get();
+ if(!job)return res.json({job:null});
+ const now=new Date().toISOString();
+ db.prepare("UPDATE agent_jobs SET status='processing',updated_at=? WHERE id=? AND status='queued'").run(now,job.id);
+ res.json({job:{id:job.id,prompt:job.prompt}});
+});
+app.post("/api/agent/jobs/:id/result",agentAuth,(req,res)=>{
+ const status=["needs_login","submitted","done","error"].includes(req.body?.status)?req.body.status:"error";
+ const result=String(req.body?.result||"").slice(0,2000),now=new Date().toISOString();
+ const info=db.prepare("UPDATE agent_jobs SET status=?,result=?,updated_at=? WHERE id=?").run(status,result,now,req.params.id);
+ if(!info.changes)return res.status(404).json({error:"Job not found"});
+ res.json({ok:true});
+});
+app.post("/api/jobs",auth,(req,res)=>{
+ const prompt=String(req.body?.prompt||"").trim();
+ if(!prompt)return res.status(400).json({error:"Hãy nhập prompt trước."});
+ if(prompt.length>30000)return res.status(413).json({error:"Prompt vượt quá 30.000 ký tự."});
+ const id=crypto.randomUUID(),now=new Date().toISOString();
+ db.prepare("INSERT INTO agent_jobs(id,prompt,status,result,created_at,updated_at) VALUES(?,?, 'queued','',?,?)").run(id,prompt,now,now);
+ db.prepare("INSERT INTO events(project_id,message,created_at) VALUES(?,?,?)").run("",`Đã gửi prompt vào hàng đợi (${id.slice(0,8)}).`,now);
+ res.json({ok:true,id,status:"queued"});
+});
+app.get("/api/jobs",auth,(req,res)=>{
+ res.json({jobs:db.prepare("SELECT id,prompt,status,result,created_at AS createdAt,updated_at AS updatedAt FROM agent_jobs ORDER BY created_at DESC LIMIT 30").all()});
+});
 app.get("/health",(req,res)=>res.json({ok:true}));
 app.listen(PORT,"0.0.0.0",()=>console.log(`Muse Video Pipeline Web listening on ${PORT}`));
